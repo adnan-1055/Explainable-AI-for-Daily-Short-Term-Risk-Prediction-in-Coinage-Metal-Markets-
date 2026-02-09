@@ -1,0 +1,11 @@
+pandas==2.3.0
+numpy==1.26.4
+yfinance==0.2.48
+sqlalchemy==2.0.46
+psycopg2-binary==2.9.11
+python-dotenv==1.0.0
+scikit-learn==1.5.2
+shap==0.46.0
+matplotlib==3.9.2
+seaborn==0.13.2
+streamlit==1.39.0
