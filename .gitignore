@@ -1,0 +1,42 @@
+# Database credentials
+*.env
+config.py
+db_config.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+*.sqlite
+*.sql.backup
+
+# Data files (don't upload large datasets)
+*.csv
+*.xlsx
+data/raw/
+data/processed/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Project specific
+passwords.txt
+credentials.json
