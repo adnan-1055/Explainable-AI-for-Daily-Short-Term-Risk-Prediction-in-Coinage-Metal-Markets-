@@ -128,6 +128,45 @@ CREATE INDEX IF NOT EXISTS idx_risk_events_metal_date ON risk_events(metal_id, d
 CREATE INDEX IF NOT EXISTS idx_risk_events_target     ON risk_events(is_risk_event);
 
 
+-- 6) SENTIMENT DATA (individual headlines scored by FinBERT)
+CREATE TABLE IF NOT EXISTS sentiment_data (
+    sentiment_id    SERIAL PRIMARY KEY,
+    metal_id        INTEGER NOT NULL REFERENCES metals(metal_id) ON DELETE CASCADE,
+    date            DATE NOT NULL,
+    headline        VARCHAR(500) NOT NULL,
+    source          VARCHAR(100),
+    sentiment_label VARCHAR(10),
+    sentiment_score NUMERIC(8, 6),
+    positive_score  NUMERIC(8, 6),
+    negative_score  NUMERIC(8, 6),
+    neutral_score   NUMERIC(8, 6),
+    data_source     VARCHAR(20) DEFAULT 'newsapi',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (metal_id, date, headline)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sentiment_metal_date ON sentiment_data(metal_id, date);
+
+
+-- 7) DAILY SENTIMENT (aggregated features for model input)
+CREATE TABLE IF NOT EXISTS daily_sentiment (
+    daily_sentiment_id SERIAL PRIMARY KEY,
+    metal_id           INTEGER NOT NULL REFERENCES metals(metal_id) ON DELETE CASCADE,
+    date               DATE NOT NULL,
+    avg_sentiment      NUMERIC(8, 6),
+    avg_positive       NUMERIC(8, 6),
+    avg_negative       NUMERIC(8, 6),
+    avg_neutral        NUMERIC(8, 6),
+    headline_count     INTEGER,
+    positive_ratio     NUMERIC(5, 4),
+    negative_ratio     NUMERIC(5, 4),
+    sentiment_std      NUMERIC(8, 6),
+    UNIQUE (metal_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_sentiment_metal_date ON daily_sentiment(metal_id, date);
+
+
 -- =========================================================
 -- VERIFICATION QUERIES
 -- Run these after populating data to check everything works
@@ -144,6 +183,8 @@ SELECT COUNT(*) AS price_rows        FROM price_data;
 SELECT COUNT(*) AS macro_rows        FROM macroeconomic_data;
 SELECT COUNT(*) AS feature_rows      FROM technical_features;
 SELECT COUNT(*) AS risk_rows         FROM risk_events;
+SELECT COUNT(*) AS sentiment_rows    FROM sentiment_data;
+SELECT COUNT(*) AS daily_sent_rows   FROM daily_sentiment;
 
 SELECT
     m.name,

@@ -1,6 +1,6 @@
 """
 FinBERT Sentiment Analysis Pipeline - Phase 2 Part 4
-- Collects financial news headlines from GDELT (historical) and NewsAPI (recent)
+- Collects financial news headlines from NewsAPI
 - Scores headlines using FinBERT sentiment model
 - Aggregates daily sentiment per metal
 - Stores results in sentiment_data and daily_sentiment tables
@@ -24,13 +24,13 @@ import torch
 # =============================================================
 # CONFIG
 # =============================================================
-NEWSAPI_KEY = None  # Set your key here or use env var NEWSAPI_KEY
+NEWSAPI_KEY = "f8259ccfc0f8474fa508484d028694b4"
 
 # Search terms for each metal
 METAL_KEYWORDS = {
-    "GOLD":   ["gold price", "gold market", "gold futures", "gold trading", "gold commodity"],
-    "SILVER": ["silver price", "silver market", "silver futures", "silver trading", "silver commodity"],
-    "COPPER": ["copper price", "copper market", "copper futures", "copper trading", "copper commodity"],
+    "GOLD":   ["gold price", "gold market", "gold futures"],
+    "SILVER": ["silver price", "silver market", "silver futures"],
+    "COPPER": ["copper price", "copper market", "copper futures"],
 }
 
 
@@ -57,30 +57,43 @@ def create_db_connection():
 # FINBERT MODEL (loads once, reused for all headlines)
 # =============================================================
 class FinBERTAnalyzer:
+    """
+    Uses the pre-trained FinBERT model to classify financial text
+    as positive, negative, or neutral. FinBERT is used here purely
+    as a feature extraction tool - the output scores become input
+    features for the Random Forest classifier.
+    """
+
     def __init__(self):
-        print("Loading FinBERT model (first time may download ~400MB)...")
+        print("Loading FinBERT model...")
         model_name = "ProsusAI/finbert"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
-        self.model.eval()  # Set to evaluation mode
+        self.model.eval()  # Set to evaluation mode (no training)
         self.labels = ["positive", "negative", "neutral"]
         print("✓ FinBERT model loaded successfully")
 
     def analyze(self, headlines: list) -> list:
         """
-        Score a batch of headlines.
-        Returns list of dicts with sentiment_label, sentiment_score,
-        positive_score, negative_score, neutral_score
+        Score a batch of headlines using FinBERT.
+
+        Args:
+            headlines: list of headline strings
+
+        Returns:
+            list of dicts with sentiment scores for each headline
         """
         if not headlines:
             return []
 
         results = []
-        # Process in batches of 32 to avoid memory issues
+
+        # Process in batches of 32 to manage memory
         batch_size = 32
         for i in range(0, len(headlines), batch_size):
             batch = headlines[i:i + batch_size]
 
+            # Tokenize the text for FinBERT
             inputs = self.tokenizer(
                 batch,
                 padding=True,
@@ -89,16 +102,20 @@ class FinBERTAnalyzer:
                 return_tensors="pt"
             )
 
+            # Get predictions without computing gradients (saves memory)
             with torch.no_grad():
                 outputs = self.model(**inputs)
 
+            # Convert raw outputs to probabilities using softmax
             probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
 
             for j, probs in enumerate(probabilities):
-                pos, neg, neu = probs[0].item(), probs[1].item(), probs[2].item()
+                pos = probs[0].item()   # Positive probability
+                neg = probs[1].item()   # Negative probability
+                neu = probs[2].item()   # Neutral probability
                 label_idx = torch.argmax(probs).item()
 
-                # Sentiment score: positive = +1, negative = -1, neutral = 0
+                # Overall sentiment score: ranges from -1 (negative) to +1 (positive)
                 sentiment_score = pos - neg
 
                 results.append({
@@ -114,103 +131,20 @@ class FinBERTAnalyzer:
 
 
 # =============================================================
-# GDELT NEWS COLLECTION (historical + recent, no API key needed)
-# =============================================================
-def collect_gdelt_headlines(keyword: str, start_date: str, end_date: str, max_records=250):
-    """
-    Fetch article headlines from GDELT DOC API.
-    GDELT reliably covers last 3 months; older dates may return fewer results.
-    """
-    url = "https://api.gdeltproject.org/api/v2/doc/doc"
-    params = {
-        "query": f'"{keyword}" sourcelang:english',
-        "mode": "artlist",
-        "maxrecords": str(max_records),
-        "format": "json",
-        "startdatetime": start_date.replace("-", "") + "000000",
-        "enddatetime": end_date.replace("-", "") + "235959",
-    }
-
-    try:
-        resp = requests.get(url, params=params, timeout=30)
-        if resp.status_code != 200:
-            return []
-
-        data = resp.json()
-        articles = data.get("articles", [])
-
-        results = []
-        for art in articles:
-            title = art.get("title", "").strip()
-            seen = art.get("seendate", "")
-            domain = art.get("domain", "")
-
-            if title and seen:
-                # Parse GDELT date format: "20250215T120000Z"
-                try:
-                    dt = datetime.strptime(seen[:8], "%Y%m%d").date()
-                except ValueError:
-                    continue
-
-                results.append({
-                    "date": dt,
-                    "headline": title,
-                    "source": domain,
-                    "data_source": "gdelt",
-                })
-
-        return results
-
-    except Exception as e:
-        print(f"  ⚠ GDELT error for '{keyword}': {e}")
-        return []
-
-
-def collect_gdelt_for_metal(metal_symbol: str, start_date: str, end_date: str):
-    """
-    Collect headlines for all keywords associated with a metal.
-    Iterates in monthly chunks to maximize coverage.
-    """
-    keywords = METAL_KEYWORDS[metal_symbol]
-    all_headlines = []
-
-    # Split into monthly chunks for better coverage
-    current = datetime.strptime(start_date, "%Y-%m-%d")
-    end = datetime.strptime(end_date, "%Y-%m-%d")
-
-    while current < end:
-        chunk_end = min(current + timedelta(days=30), end)
-        chunk_start_str = current.strftime("%Y-%m-%d")
-        chunk_end_str = chunk_end.strftime("%Y-%m-%d")
-
-        for kw in keywords:
-            articles = collect_gdelt_headlines(kw, chunk_start_str, chunk_end_str)
-            all_headlines.extend(articles)
-            time.sleep(1)  # Be polite to the API
-
-        current = chunk_end + timedelta(days=1)
-
-    # Deduplicate by headline text
-    seen = set()
-    unique = []
-    for h in all_headlines:
-        if h["headline"] not in seen:
-            seen.add(h["headline"])
-            unique.append(h)
-
-    return unique
-
-
-# =============================================================
-# NEWSAPI COLLECTION (recent 30 days, requires free API key)
+# NEWSAPI COLLECTION (recent headlines, free tier = last 30 days)
 # =============================================================
 def collect_newsapi_headlines(keyword: str, api_key: str, page_size=100):
     """
-    Fetch recent headlines from NewsAPI (free tier = last 30 days).
-    """
-    if not api_key:
-        return []
+    Fetch recent headlines from NewsAPI matching the keyword.
 
+    Args:
+        keyword: search term (e.g. "gold price")
+        api_key: NewsAPI API key
+        page_size: max articles to return (up to 100)
+
+    Returns:
+        list of dicts with date, headline, source, data_source
+    """
     url = "https://newsapi.org/v2/everything"
     params = {
         "q": keyword,
@@ -221,7 +155,7 @@ def collect_newsapi_headlines(keyword: str, api_key: str, page_size=100):
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=30)
+        resp = requests.get(url, params=params, timeout=15)
         if resp.status_code != 200:
             print(f"  ⚠ NewsAPI error ({resp.status_code}) for '{keyword}'")
             return []
@@ -235,6 +169,7 @@ def collect_newsapi_headlines(keyword: str, api_key: str, page_size=100):
             pub = art.get("publishedAt", "")
             source_name = art.get("source", {}).get("name", "")
 
+            # Skip removed or empty articles
             if title and pub and title != "[Removed]":
                 try:
                     dt = datetime.strptime(pub[:10], "%Y-%m-%d").date()
@@ -255,20 +190,27 @@ def collect_newsapi_headlines(keyword: str, api_key: str, page_size=100):
         return []
 
 
-def collect_newsapi_for_metal(metal_symbol: str, api_key: str):
-    """Collect recent headlines from NewsAPI for a metal."""
-    if not api_key:
-        return []
+def collect_headlines_for_metal(metal_symbol: str, api_key: str):
+    """
+    Collect and deduplicate headlines for all keywords of a metal.
 
+    Args:
+        metal_symbol: "GOLD", "SILVER", or "COPPER"
+        api_key: NewsAPI key
+
+    Returns:
+        list of unique headline dicts
+    """
     keywords = METAL_KEYWORDS[metal_symbol]
     all_headlines = []
 
     for kw in keywords:
+        print(f"    Searching: '{kw}'...")
         articles = collect_newsapi_headlines(kw, api_key)
         all_headlines.extend(articles)
-        time.sleep(0.5)
+        time.sleep(0.5)  # Small delay between requests
 
-    # Deduplicate
+    # Remove duplicate headlines
     seen = set()
     unique = []
     for h in all_headlines:
@@ -308,14 +250,14 @@ def insert_sentiment_data(engine, metal_id: int, scored_headlines: list):
         records.append({
             "metal_id": metal_id,
             "date": h["date"],
-            "headline": h["headline"][:500],  # Truncate very long headlines
+            "headline": h["headline"][:500],
             "source": h.get("source", "")[:100],
             "sentiment_label": h["sentiment_label"],
             "sentiment_score": float(h["sentiment_score"]),
             "positive_score": float(h["positive_score"]),
             "negative_score": float(h["negative_score"]),
             "neutral_score": float(h["neutral_score"]),
-            "data_source": h.get("data_source", "gdelt"),
+            "data_source": h.get("data_source", "newsapi"),
         })
 
     with engine.begin() as conn:
@@ -326,8 +268,18 @@ def insert_sentiment_data(engine, metal_id: int, scored_headlines: list):
 
 def aggregate_daily_sentiment(engine, metal_id: int):
     """
-    Aggregate individual headlines into daily sentiment features.
-    These daily aggregates become model input features.
+    Aggregate individual headline scores into daily sentiment features.
+    These daily aggregates become input features for the Random Forest model.
+
+    Features created:
+        avg_sentiment:  mean sentiment score for the day (-1 to +1)
+        avg_positive:   mean positive probability
+        avg_negative:   mean negative probability
+        avg_neutral:    mean neutral probability
+        headline_count: number of headlines that day
+        positive_ratio: proportion of headlines classified as positive
+        negative_ratio: proportion of headlines classified as negative
+        sentiment_std:  standard deviation of sentiment (measures disagreement)
     """
     sql = text("""
         INSERT INTO daily_sentiment (
@@ -372,30 +324,27 @@ def main():
     print("PHASE 2 PART 4 - FINBERT SENTIMENT PIPELINE")
     print("=" * 70)
 
-    # DB connection
+    # Step 1: Connect to database
     engine = create_db_connection()
 
-    # Get metal mappings
-    metals = pd.read_sql("SELECT metal_id, symbol, name FROM metals ORDER BY metal_id;", engine)
+    # Step 2: Get metal mappings from DB
+    metals = pd.read_sql(
+        "SELECT metal_id, symbol, name FROM metals ORDER BY metal_id;",
+        engine
+    )
 
-    # Load FinBERT model (once)
+    # Step 3: Load FinBERT model (once, reused for all metals)
     finbert = FinBERTAnalyzer()
 
-    # Check for NewsAPI key
+    # Step 4: Check API key
     api_key = NEWSAPI_KEY or os.getenv("NEWSAPI_KEY")
-    if api_key:
-        print(f"✓ NewsAPI key found - will collect recent headlines")
-    else:
-        print("⚠ No NewsAPI key - using GDELT only (set NEWSAPI_KEY env var to add NewsAPI)")
+    if not api_key:
+        print("✗ No NewsAPI key found. Set NEWSAPI_KEY in the script or as env var.")
+        return
 
-    # Date range: try to cover as much as GDELT will give us
-    # GDELT reliably gives last 3 months, sometimes more
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = "2024-11-01"  # ~3 months back for reliable GDELT coverage
+    print(f"✓ NewsAPI key found")
 
-    print(f"\nDate range: {start_date} to {end_date}")
-    print(f"Note: GDELT covers ~3 months reliably. Older data may be sparse.\n")
-
+    # Step 5: Process each metal
     for _, row in metals.iterrows():
         metal_id = int(row["metal_id"])
         metal_symbol = row["symbol"]
@@ -405,54 +354,36 @@ def main():
         print(f"--- {metal_name} ({metal_symbol}) ---")
         print(f"{'='*50}")
 
-        # 1. Collect from GDELT
-        print(f"  Collecting GDELT headlines...")
-        gdelt_headlines = collect_gdelt_for_metal(metal_symbol, start_date, end_date)
-        print(f"  ✓ GDELT: {len(gdelt_headlines)} unique headlines")
+        # 5a. Collect headlines from NewsAPI
+        print(f"  Collecting headlines from NewsAPI...")
+        headlines = collect_headlines_for_metal(metal_symbol, api_key)
+        print(f"  ✓ Found {len(headlines)} unique headlines")
 
-        # 2. Collect from NewsAPI (if key available)
-        newsapi_headlines = []
-        if api_key:
-            print(f"  Collecting NewsAPI headlines...")
-            newsapi_headlines = collect_newsapi_for_metal(metal_symbol, api_key)
-            print(f"  ✓ NewsAPI: {len(newsapi_headlines)} unique headlines")
-
-        # 3. Combine and deduplicate
-        all_headlines = gdelt_headlines + newsapi_headlines
-        seen = set()
-        unique_headlines = []
-        for h in all_headlines:
-            if h["headline"] not in seen:
-                seen.add(h["headline"])
-                unique_headlines.append(h)
-
-        print(f"  Total unique headlines: {len(unique_headlines)}")
-
-        if not unique_headlines:
+        if not headlines:
             print(f"  ⚠ No headlines found for {metal_name}. Skipping.")
             continue
 
-        # 4. Score with FinBERT
+        # 5b. Score headlines with FinBERT
         print(f"  Running FinBERT sentiment analysis...")
-        headline_texts = [h["headline"] for h in unique_headlines]
+        headline_texts = [h["headline"] for h in headlines]
         scores = finbert.analyze(headline_texts)
 
-        # Merge scores back with metadata
+        # Merge scores with headline metadata
         scored = []
-        for h, s in zip(unique_headlines, scores):
+        for h, s in zip(headlines, scores):
             scored.append({**h, **s})
 
-        # 5. Insert into database
-        print(f"  Inserting into sentiment_data...")
+        # 5c. Insert into sentiment_data table
+        print(f"  Inserting into database...")
         n_inserted = insert_sentiment_data(engine, metal_id, scored)
-        print(f"  ✓ Inserted: {n_inserted} rows")
+        print(f"  ✓ Inserted: {n_inserted} headline scores")
 
-        # 6. Aggregate daily sentiment
-        print(f"  Aggregating daily sentiment...")
+        # 5d. Aggregate into daily_sentiment table
+        print(f"  Aggregating daily sentiment features...")
         aggregate_daily_sentiment(engine, metal_id)
         print(f"  ✓ Daily sentiment aggregated")
 
-    # Final verification
+    # Step 6: Verification
     print("\n" + "=" * 70)
     print("VERIFICATION")
     print("=" * 70)
@@ -463,9 +394,10 @@ def main():
         result = conn.execute(text("SELECT COUNT(*) FROM daily_sentiment;"))
         daily_count = result.scalar()
 
-        print(f"  sentiment_data rows:  {sent_count}")
-        print(f"  daily_sentiment rows: {daily_count}")
+        print(f"  Total headlines scored:    {sent_count}")
+        print(f"  Daily sentiment records:   {daily_count}")
 
+        # Breakdown by metal
         result = conn.execute(text("""
             SELECT m.name,
                    COUNT(s.sentiment_id) AS headlines,
@@ -477,13 +409,20 @@ def main():
             GROUP BY m.name ORDER BY m.name;
         """))
         for row in result:
-            print(f"  {row[0]}: {row[1]} headlines across {row[2]} days ({row[3]} to {row[4]})")
+            print(f"  {row[0]}: {row[1]} headlines | {row[2]} days | {row[3]} to {row[4]}")
+
+        # Sentiment distribution
+        result = conn.execute(text("""
+            SELECT sentiment_label, COUNT(*)
+            FROM sentiment_data
+            GROUP BY sentiment_label
+            ORDER BY sentiment_label;
+        """))
+        print("\n  Sentiment distribution:")
+        for row in result:
+            print(f"    {row[0]}: {row[1]}")
 
     print("\n✓ SENTIMENT PIPELINE COMPLETE")
-    print("\nVerify in pgAdmin:")
-    print("  SELECT COUNT(*) FROM sentiment_data;")
-    print("  SELECT COUNT(*) FROM daily_sentiment;")
-    print("  SELECT sentiment_label, COUNT(*) FROM sentiment_data GROUP BY sentiment_label;")
 
 
 if __name__ == "__main__":
