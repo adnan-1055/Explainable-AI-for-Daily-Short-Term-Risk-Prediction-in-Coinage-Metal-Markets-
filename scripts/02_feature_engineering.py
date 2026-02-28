@@ -113,6 +113,9 @@ def build_features(df: pd.DataFrame):
     df["volume_change"] = df["volume"].pct_change()
     df["volume_sma_20"] = df["volume"].rolling(20).mean()
 
+    # *** FIX: Replace inf/-inf with NaN so PostgreSQL doesn't crash ***
+    df = df.replace([np.inf, -np.inf], np.nan)
+
     return df
 
 
