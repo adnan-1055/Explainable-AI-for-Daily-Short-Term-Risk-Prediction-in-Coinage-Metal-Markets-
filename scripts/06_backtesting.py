@@ -1,20 +1,3 @@
-"""
-06_backtesting.py
-=================
-Phase 3 - Backtesting on Unseen 2025 Data
-Explainable AI for Daily Short-Term Risk Prediction in Coinage Metal Markets
-
-Mohammed Adnan Osman | Student ID: 33114153
-Supervisor: Dr Nasim Dadashi | University of West London
-
-What this script does:
-    1. Loads trained models from /models/ folder
-    2. Runs walk-forward prediction on 2025 unseen data
-    3. Generates risk timeline charts for each metal
-    4. Produces SHAP waterfall plots for top true-positive predictions
-    5. Saves daily prediction CSVs to /outputs/backtest/
-"""
-
 import os
 import warnings
 import joblib
@@ -241,7 +224,7 @@ def plot_shap_waterfall(model, X_day, feature_names, metal_name, model_label,
             sv = shap_values
 
         plt.figure(figsize=(10, 6))
-        shap.waterfall_plot(sv[0], max_display=15, show=False)
+        shap.waterfall_plot(sv[0, :, 1], max_display=15, show=False)
         plt.title(f'SHAP Waterfall — {metal_name.upper()} | {model_label}\n'
                   f'High-Risk Day: {date_str}',
                   fontsize=11, fontweight='bold')

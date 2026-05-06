@@ -1,15 +1,6 @@
-"""
-04_model_training.py
-====================
-Phase 3 - Model Development
-Explainable AI for Daily Short-Term Risk Prediction in Coinage Metal Markets
-
-Mohammed Adnan Osman | Student ID: 33114153
-Supervisor: Dr Nasim Dadashi | University of West London
-"""
-
 import os
 import warnings
+warnings.filterwarnings('ignore')
 import joblib
 import numpy as np
 import pandas as pd
@@ -27,8 +18,6 @@ from sklearn.metrics import (
     brier_score_loss, log_loss, classification_report
 )
 from sklearn.utils.class_weight import compute_class_weight
-
-warnings.filterwarnings('ignore')
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
@@ -423,6 +412,11 @@ def main():
             'risk_threshold': RISK_THRESHOLD
         }, feat_path)
         print(f"    Feature lists saved : {feat_path}")
+
+        print(f"Target distribution:\n{df['target'].value_counts()}")
+        print(f"Target rate: {df['target'].mean():.3f}")
+        print(f"First row target: {df['target'].iloc[0]}")
+        print(f"Last row target: {df['target'].iloc[-1]}")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'=' * 70}")

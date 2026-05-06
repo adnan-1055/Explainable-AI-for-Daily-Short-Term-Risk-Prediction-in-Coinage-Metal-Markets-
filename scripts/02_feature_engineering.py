@@ -1,31 +1,18 @@
-"""
-Feature Engineering Script - Phase 2 Part 3 (Robust / No DB errors)
-- Calculates technical indicators
-- Flags risk events (daily return <= -2%)
-- Inserts into technical_features and risk_events with ON CONFLICT DO NOTHING
-
-Student: Mohammed Adnan Osman (33114153)
-Date: Jan 28, 2026
-"""
-
 import os
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-# -----------------------------
-# DB CONNECTION (safe)
-# -----------------------------
+# Database Connection
 def create_db_connection():
     DB_HOST = "localhost"
     DB_PORT = 5432
     DB_NAME = "metal_risk_prediction"
     DB_USER = "postgres"
 
-    # Option A: set env var DB_PASSWORD
+    # Which ever way works at the time of running
     DB_PASSWORD = os.getenv("DB_PASSWORD")
     if not DB_PASSWORD:
-        # Option B: just type it here temporarily (NOT recommended)
         DB_PASSWORD = input("Postgres password: ").strip()
 
     conn_str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -33,10 +20,7 @@ def create_db_connection():
     print(f"✓ Connected to database: {DB_NAME}")
     return engine
 
-
-# -----------------------------
-# TECH INDICATORS
-# -----------------------------
+# Technical Indicators
 def calculate_rsi(series: pd.Series, period=14):
     delta = series.diff()
     gain = delta.where(delta > 0, 0).rolling(period).mean()
@@ -60,10 +44,7 @@ def calculate_bollinger(series: pd.Series, window=20, num_std=2):
     width = (upper - lower) / mid
     return upper, mid, lower, width
 
-
-# -----------------------------
-# LOAD PRICES FOR ONE METAL
-# -----------------------------
+# Load prices for one of the metals
 def load_price_data(engine, metal_id: int):
     q = text("""
         SELECT metal_id, date, open, high, low, close, volume
@@ -77,18 +58,16 @@ def load_price_data(engine, metal_id: int):
     df["date"] = pd.to_datetime(df["date"])
     return df
 
-
-# -----------------------------
-# FEATURE ENGINEERING
-# -----------------------------
+# Feature engineering
 def build_features(df: pd.DataFrame):
     df = df.copy()
 
-    # Returns
+    # Returns 
     df["daily_return"] = df["close"].pct_change()
     df["log_return"] = np.log(df["close"] / df["close"].shift(1))
 
-    # SMAs / EMAs
+    # Simple moving average - average close price over the last 5, 10, 20 days.
+    # Exponential moving average (EMA) - more recent prices are weighted heavily
     df["sma_5"] = df["close"].rolling(5).mean()
     df["sma_10"] = df["close"].rolling(10).mean()
     df["sma_20"] = df["close"].rolling(20).mean()
@@ -96,32 +75,33 @@ def build_features(df: pd.DataFrame):
     df["ema_12"] = df["close"].ewm(span=12, adjust=False).mean()
     df["ema_26"] = df["close"].ewm(span=26, adjust=False).mean()
 
-    # Bollinger
+    # Bollinger bands 
+    # 1) A middle line
+    # 2) Upper line which is 2 standard deviations above it
+    # 3) Lower line which is 2 standard deviations below it
     df["bollinger_upper"], df["bollinger_middle"], df["bollinger_lower"], df["bollinger_width"] = calculate_bollinger(df["close"])
 
-    # RSI
+    # Relative strength index - how fast prices have been mooving
     df["rsi_14"] = calculate_rsi(df["close"], 14)
 
-    # MACD
+    # Moving average convergence divergence - different between 12 and 24 days of EMA
     df["macd"], df["macd_signal"], df["macd_histogram"] = calculate_macd(df["close"])
 
-    # High-low features
+    # High low features - How high the prices swung that day
     df["high_low_range"] = (df["high"] - df["low"])
     df["high_low_ratio"] = np.where(df["low"] > 0, df["high"] / df["low"], np.nan)
 
-    # Volume features
+    # Volume features - The percentage chnge is how many contracts were traded compared to the previous day.
     df["volume_change"] = df["volume"].pct_change()
     df["volume_sma_20"] = df["volume"].rolling(20).mean()
 
-    # *** FIX: Replace inf/-inf with NaN so PostgreSQL doesn't crash ***
+    # If volumne was zero, dividing it gives infinity which crashes.
+    # Fixed by replacing infinite values with 'Not a Number'
     df = df.replace([np.inf, -np.inf], np.nan)
 
     return df
 
-
-# -----------------------------
-# RISK EVENTS
-# -----------------------------
+# Risk events
 def build_risk_events(df: pd.DataFrame, threshold=-0.02):
     """
     Risk event if daily_return <= -2%
@@ -136,10 +116,7 @@ def build_risk_events(df: pd.DataFrame, threshold=-0.02):
     out = out.dropna(subset=["previous_close", "current_close", "daily_return"])
     return out
 
-
-# -----------------------------
 # INSERT (UPSERT SAFE)
-# -----------------------------
 def upsert_technical_features(engine, df: pd.DataFrame):
     # Match YOUR technical_features table schema from earlier
     cols = [

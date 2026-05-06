@@ -1,27 +1,16 @@
-"""
-PHASE 2 DATA COLLECTION (Level 6, robust)
-- Pull OHLCV for Gold/Silver/Copper from yFinance
-- Pull macro (DXY, VIX, TNX, S&P500)
-- Insert into PostgreSQL with ON CONFLICT DO NOTHING (no duplicate crashes)
-
-Works with newer yfinance versions (handles MultiIndex columns + Date/Datetime).
-"""
-
 import getpass
 import pandas as pd
 import yfinance as yf
 import psycopg2
 from psycopg2.extras import execute_values
 
-# -------------------------------
-# DB CONFIG
-# -------------------------------
+# Database Configuration
 DB_HOST = "localhost"
 DB_PORT = 5432
 DB_NAME = "metal_risk_prediction"
 DB_USER = "postgres"
 
-
+# Prompts me for postgre password
 def connect_db():
     pwd = getpass.getpass("Postgres password: ")
     conn = psycopg2.connect(
@@ -32,10 +21,11 @@ def connect_db():
         password=pwd
     )
     conn.autocommit = False
-    print(f"✓ Connected to DB: {DB_NAME}")
+    # Every insert is not automatically commited until explicitly called (Rollback)
+    print(f"Connected to DB: {DB_NAME}")
     return conn
 
-
+# Reads the metal table
 def get_metal_map(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT symbol, metal_id, yfinance_ticker FROM metals ORDER BY metal_id;")
@@ -46,10 +36,6 @@ def get_metal_map(conn):
 
 
 def _flatten_yfinance_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    yfinance can return MultiIndex columns like ('Open','GC=F').
-    This flattens them to 'Open', 'High', etc.
-    """
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] for c in df.columns]
     return df
@@ -75,7 +61,7 @@ def download_prices(ticker, start="2020-01-01", end="2025-12-31"):
         # If neither exists, use the first column as date
         df = df.rename(columns={df.columns[0]: "date"})
 
-    # Standardise names (case-insensitive)
+    # Standardise names
     colmap = {}
     for c in df.columns:
         cl = str(c).strip().lower()
@@ -113,7 +99,7 @@ def download_prices(ticker, start="2020-01-01", end="2025-12-31"):
 
 def insert_price_data(conn, metal_id, df):
     if df is None or df.empty:
-        print("⚠ No price data returned.")
+        print(" No price data returned.")
         return 0
 
     records = []
@@ -263,21 +249,21 @@ def main():
             df_prices = download_prices(tkr)
             n = insert_price_data(conn, mid, df_prices)
             conn.commit()
-            print(f"✓ Insert attempted: {n} rows (duplicates ignored)")
+            print(f"Insert attempted: {n} rows (duplicates ignored)")
 
         print("\n--- MACRO (DXY, VIX, TNX, S&P500) ---")
         df_macro = download_macro()
         n = insert_macro(conn, df_macro)
         conn.commit()
-        print(f"✓ Insert attempted: {n} rows (duplicates ignored)")
+        print(f"Insert attempted: {n} rows (duplicates ignored)")
 
         verify_counts(conn)
-        print("\n✓ DONE.")
+        print("\nDONE.")
 
     except Exception as e:
         if conn:
             conn.rollback()
-        print(f"\n✗ ERROR: {e}")
+        print(f"\nERROR: {e}")
 
     finally:
         if conn:

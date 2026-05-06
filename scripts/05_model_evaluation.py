@@ -1,21 +1,3 @@
-"""
-05_model_evaluation.py
-======================
-Phase 3 - Model Evaluation
-Explainable AI for Daily Short-Term Risk Prediction in Coinage Metal Markets
-
-Mohammed Adnan Osman | Student ID: 33114153
-Supervisor: Dr Nasim Dadashi | University of West London
-
-What this script does:
-    1. Loads trained models from /models/ folder
-    2. Reconstructs test sets for each metal
-    3. Generates ROC curves, Precision-Recall curves, Calibration plots,
-       Confusion matrices for baseline and enhanced models
-    4. Produces a multi-panel comparison chart across all metals
-    5. Saves all plots to /outputs/plots/ and metrics to /outputs/metrics/
-"""
-
 import os
 import warnings
 import joblib

@@ -1,13 +1,3 @@
-"""
-FinBERT Sentiment Analysis Pipeline - Phase 2 Part 4
-- Collects financial news headlines from NewsAPI
-- Scores headlines using FinBERT sentiment model
-- Aggregates daily sentiment per metal
-- Stores results in sentiment_data and daily_sentiment tables
-
-Student: Mohammed Adnan Osman (33114153)
-Date: Feb 2026
-"""
 
 import os
 import time
@@ -74,15 +64,7 @@ class FinBERTAnalyzer:
         print("✓ FinBERT model loaded successfully")
 
     def analyze(self, headlines: list) -> list:
-        """
-        Score a batch of headlines using FinBERT.
 
-        Args:
-            headlines: list of headline strings
-
-        Returns:
-            list of dicts with sentiment scores for each headline
-        """
         if not headlines:
             return []
 

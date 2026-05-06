@@ -1,12 +1,3 @@
-"""
-07_regenerate_shap.py
-=====================
-Standalone script to regenerate SHAP plots correctly.
-Models are already trained — this just reloads and re-plots.
-
-Mohammed Adnan Osman | Student ID: 33114153
-"""
-
 import os
 import warnings
 import joblib

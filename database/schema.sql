@@ -195,3 +195,4 @@ FROM metals m
 LEFT JOIN price_data p ON m.metal_id = p.metal_id
 GROUP BY m.name
 ORDER BY m.name;
+
