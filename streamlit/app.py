@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import shap
 

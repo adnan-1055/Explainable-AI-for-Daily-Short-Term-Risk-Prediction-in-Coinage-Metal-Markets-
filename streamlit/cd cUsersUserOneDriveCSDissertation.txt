@@ -1,0 +1,3 @@
+cd "c:\Users\User\OneDrive\CS\Dissertation\Explainable-AI-for-Daily-Short-Term-Risk-Prediction-in-Coinage-Metal-Markets-\streamlit"
+
+python3.11 -m streamlit run app.py
